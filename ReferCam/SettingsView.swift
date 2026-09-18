@@ -19,7 +19,6 @@ enum AppLanguage: String, CaseIterable {
 }
 
 enum AppStorageKey {
-    static let saveAsPreviewed = "refcam.saveAsPreviewed"
     static let silentShutterPreferred = "refcam.silentShutterPreferred"
     static let theme = "refcam.theme"
     static let language = "refcam.language"
@@ -37,8 +36,8 @@ enum L10n {
         "mode.burst": ("연속 촬영", "Burst"),
         "a11y.settings": ("설정", "Settings"),
         "a11y.switchCam": ("카메라 전환", "Switch camera"),
-        "stage.hint.silent": ("레퍼런스 없이도 무음·무보정 카메라로 촬영돼요", "Silent, unretouched camera — works without a reference too"),
-        "stage.hint.plain": ("레퍼런스 없이도 무보정 카메라로 촬영돼요", "Unretouched camera — works without a reference too"),
+        "stage.hint.silent": ("레퍼런스 없이도 무음 카메라로 촬영돼요", "Silent capture — works without a reference too"),
+        "stage.hint.plain": ("레퍼런스 없이도 촬영돼요", "Works without a reference too"),
         "cam.fail": ("카메라를 못 열었어요. 화면을 탭해 장면 사진으로 시뮬레이션하세요.", "Couldn't open the camera. Tap the screen to simulate with a scene photo."),
         "cam.denied": ("카메라 접근이 꺼져 있어요. 탭해서 설정을 여세요.", "Camera access is off. Tap to open Settings."),
         "a11y.currentRef": ("현재 레퍼런스", "Current reference"),
@@ -72,10 +71,8 @@ enum L10n {
         "set.camera": ("카메라 설정", "Camera"),
         "set.display": ("화면", "Display"),
         "set.collage": ("콜라주", "Collage"),
-        "set.mirror": ("보이는 대로 저장", "Save as previewed"),
-        "set.mirrorD": ("셀피(전면 카메라)에만 적용 · 미리보기 그대로 저장돼요", "Selfies only · Saves exactly what you see in preview"),
         "set.silent": ("무음 셔터", "Silent shutter"),
-        "set.silentD": ("무보정 캡처와 함께 기본 제공돼요", "Built in, along with unretouched capture"),
+        "set.silentD": ("지원되는 기기에서 무음 촬영이 적용돼요", "Silent capture when supported"),
         "set.silentUnavailable": ("iOS 18 이상 및 지원 기기에서만 사용할 수 있어요", "Requires iOS 18 or later on a supported device"),
         "set.theme": ("테마", "Theme"),
         "set.themeD": ("뷰파인더는 항상 어둡게 유지돼요", "The viewfinder always stays dark"),
@@ -282,7 +279,6 @@ private struct SectionLabel: View {
 // MARK: - SettingsView
 
 struct SettingsView: View {
-    @AppStorage(AppStorageKey.saveAsPreviewed) private var saveAsPreviewed: Bool = true
     @AppStorage(AppStorageKey.silentShutterPreferred) private var silentShutterPreferred: Bool = true
     @AppStorage(AppStorageKey.theme) private var themeRaw: String = AppTheme.dark.rawValue
     @AppStorage(AppStorageKey.language) private var languageRaw: String = AppLanguage.systemDefault().rawValue
@@ -307,17 +303,11 @@ struct SettingsView: View {
                 .padding(.bottom, 14)
 
             // Rows scroll independently of the sheet's detent, and Close stays pinned
-            // below the scroll area, so all five rows and Close are reachable whether
-            // the sheet is at .medium or .large, on any iPhone size or Dynamic Type setting.
+            // below the scroll area, so all rows and Close are reachable whether the
+            // sheet is at .medium or .large, on any iPhone size or Dynamic Type setting.
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     SectionLabel(title: t("set.camera"), colors: colors)
-
-                    SettingsRow(title: t("set.mirror"), description: t("set.mirrorD"), colors: colors) {
-                        ToggleSwitch(isOn: saveAsPreviewed, isEnabled: true, trackOffColor: colors.line) {
-                            saveAsPreviewed.toggle()
-                        }
-                    }
 
                     SettingsRow(
                         title: t("set.silent"),
@@ -371,10 +361,10 @@ struct SettingsView: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(colors.sheet)
-        // Tall by default so the first row (Save as previewed) is visible on open,
-        // matching the source's tall bottom sheet (max-height: 92dvh) rather than a
-        // half-height sheet that clips the row hierarchy. Rows still scroll and Close
-        // stays reachable regardless of detent (see the ScrollView above).
+        // Tall by default so the row hierarchy is visible on open, matching the source's
+        // tall bottom sheet (max-height: 92dvh) rather than a half-height sheet that
+        // clips it. Rows still scroll and Close stays reachable regardless of detent
+        // (see the ScrollView above).
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .presentationBackground(colors.sheet)

@@ -77,7 +77,6 @@ private enum TimerOption: Int, CaseIterable, Identifiable {
 struct CameraView: View {
     @StateObject private var camera = CameraManager()
 
-    @AppStorage(AppStorageKey.saveAsPreviewed) private var saveAsPreviewed: Bool = true
     @AppStorage(AppStorageKey.silentShutterPreferred) private var silentShutterPreferred: Bool = true
     @AppStorage(AppStorageKey.theme) private var themeRaw: String = AppTheme.dark.rawValue
     @AppStorage(AppStorageKey.language) private var languageRaw: String = AppLanguage.systemDefault().rawValue
@@ -603,7 +602,6 @@ struct CameraView: View {
             reviewImage = simulatedScene
         } else {
             camera.capturePhoto(
-                saveAsPreviewed: saveAsPreviewed,
                 suppressShutterSound: silentShutterPreferred && isSilentShutterAvailable
             )
         }

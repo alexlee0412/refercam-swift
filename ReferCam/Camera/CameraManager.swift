@@ -55,7 +55,7 @@ final class CameraManager: ObservableObject {
         }
     }
 
-    func capturePhoto(saveAsPreviewed: Bool = false, suppressShutterSound: Bool = false) {
+    func capturePhoto(suppressShutterSound: Bool = false) {
         sessionQueue.async { [weak self] in
             guard let self else { return }
             guard self.session.isRunning, self.isConfigured else {
@@ -75,10 +75,10 @@ final class CameraManager: ObservableObject {
                 self.publishError("Camera photo connection is unavailable.")
                 return
             }
-            if connection.isVideoOrientationSupported {
-                connection.videoOrientation = .portrait
+            if connection.isVideoRotationAngleSupported(90) {
+                connection.videoRotationAngle = 90
             }
-            let shouldMirror = self.videoInput?.device.position == .front && saveAsPreviewed
+            let shouldMirror = self.videoInput?.device.position == .front
             if shouldMirror && !connection.isVideoMirroringSupported {
                 self.publishError("Mirrored photo capture is unavailable on this device.")
                 return

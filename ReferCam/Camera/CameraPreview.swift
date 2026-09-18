@@ -8,7 +8,7 @@ struct CameraPreview: UIViewRepresentable {
         let view = PreviewView()
         view.previewLayer.videoGravity = .resizeAspectFill
         view.previewLayer.session = session
-        view.updateMirroring()
+        view.configureMirroring()
         return view
     }
 
@@ -16,7 +16,7 @@ struct CameraPreview: UIViewRepresentable {
         if view.previewLayer.session !== session {
             view.previewLayer.session = session
         }
-        view.updateMirroring()
+        view.configureMirroring()
     }
 }
 
@@ -30,20 +30,16 @@ final class PreviewView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         previewLayer.frame = bounds
-        updateMirroring()
+        configureMirroring()
     }
 
-    func updateMirroring() {
-        guard let session = previewLayer.session,
-              let connection = previewLayer.connection,
+    /// AVFoundation updates the preview connection's mirror state when the
+    /// session switches between front and rear inputs. Keeping automatic
+    /// adjustment enabled avoids a stale manual value when SwiftUI does not
+    /// re-invoke updateUIView for an input-only session change.
+    func configureMirroring() {
+        guard let connection = previewLayer.connection,
               connection.isVideoMirroringSupported else { return }
-
-        let isFront = session.inputs.contains {
-            ($0 as? AVCaptureDeviceInput)?.device.position == .front
-        }
-        connection.automaticallyAdjustsVideoMirroring = false
-        if connection.isVideoMirrored != isFront {
-            connection.isVideoMirrored = isFront
-        }
+        connection.automaticallyAdjustsVideoMirroring = true
     }
 }
