@@ -2,28 +2,17 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
-// MARK: - Palette (ported from the ReferCam web prototype's dark CSS variables)
+// MARK: - Stage palette (viewfinder stays dark regardless of the Display theme setting;
+// these values are ported as hardcoded literals directly from the prototype's CSS, which
+// never routes the stage's own colors through its themed --bg/--fg custom properties)
 
-private enum Palette {
-    static let bg = Color(red: 0x0c / 255.0, green: 0x0c / 255.0, blue: 0x0d / 255.0)
-    static let fg = Color(red: 0xf2 / 255.0, green: 0xf2 / 255.0, blue: 0xf0 / 255.0)
-    static let mut = Color(red: 0x9a / 255.0, green: 0x9a / 255.0, blue: 0x94 / 255.0)
-    static let mut2 = Color(red: 0x83 / 255.0, green: 0x83 / 255.0, blue: 0x7d / 255.0)
-    static let line = Color.white.opacity(0.2)
-    static let lineSoft = Color.white.opacity(0.14)
-    static let chipLine = Color.white.opacity(0.18)
-    static let chipFg = Color(red: 0xb7 / 255.0, green: 0xb7 / 255.0, blue: 0xb0 / 255.0)
-    static let invBg = Color(red: 0xf2 / 255.0, green: 0xf2 / 255.0, blue: 0xf0 / 255.0)
-    static let invFg = Color(red: 0x0c / 255.0, green: 0x0c / 255.0, blue: 0x0d / 255.0)
-    static let seg = Color.white.opacity(0.08)
-    static let btnBg = Color.white.opacity(0.06)
-    static let sheet = Color(red: 0x17 / 255.0, green: 0x17 / 255.0, blue: 0x1a / 255.0)
-    static let shutterRing = Color.white.opacity(0.85)
-    static let accent = Color(red: 0xf2 / 255.0, green: 0xb5 / 255.0, blue: 0x44 / 255.0)
+private enum StagePalette {
     static let stageBg = Color(red: 0x17 / 255.0, green: 0x17 / 255.0, blue: 0x1a / 255.0)
     static let hintBg = Color(red: 0x0c / 255.0, green: 0x0c / 255.0, blue: 0x0d / 255.0).opacity(0.6)
     static let capsuleBg = Color(red: 0x0c / 255.0, green: 0x0c / 255.0, blue: 0x0d / 255.0).opacity(0.45)
     static let refChipBorder = Color.white.opacity(0.28)
+    static let fg = Color(red: 0xf2 / 255.0, green: 0xf2 / 255.0, blue: 0xf0 / 255.0)
+    static let chipFg = Color(red: 0xb7 / 255.0, green: 0xb7 / 255.0, blue: 0xb0 / 255.0)
 }
 
 // MARK: - Wordmark ("bead" letters, ported from .bead in the prototype)
@@ -44,13 +33,13 @@ private let wordmarkBeads: [Bead] = [
 private enum ShootMode: String, CaseIterable, Identifiable {
     case instant, burst
     var id: String { rawValue }
-    var label: String { self == .instant ? "Instant" : "Burst" }
+    var l10nKey: String { self == .instant ? "mode.instant" : "mode.burst" }
 }
 
 private enum CaptureType: String, CaseIterable, Identifiable {
     case photo, video
     var id: String { rawValue }
-    var label: String { self == .photo ? "Photo" : "Video" }
+    var l10nKey: String { self == .photo ? "chip.photo" : "chip.video" }
 }
 
 private struct CaptureRatio: Identifiable, Equatable {
@@ -73,26 +62,13 @@ private struct CaptureRatio: Identifiable, Equatable {
 private enum TimerOption: Int, CaseIterable, Identifiable {
     case off = 0, three = 3, five = 5, ten = 10
     var id: Int { rawValue }
-    var label: String { self == .off ? "Off" : "\(rawValue)s" }
-}
-
-// MARK: - Shared sheet button style (ported from .btn / .btn.primary)
-
-private struct SheetButtonStyle: ButtonStyle {
-    let isPrimary: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 14, weight: isPrimary ? .semibold : .regular))
-            .foregroundStyle(isPrimary ? Palette.invFg : Palette.fg)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 13)
-            .background(isPrimary ? Palette.invBg : Color.clear, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isPrimary ? Color.clear : Palette.line, lineWidth: 1)
-            )
-            .opacity(configuration.isPressed ? 0.7 : 1)
+    var l10nKey: String {
+        switch self {
+        case .off: return "timer.off"
+        case .three: return "timer.3"
+        case .five: return "timer.5"
+        case .ten: return "timer.10"
+        }
     }
 }
 
@@ -100,6 +76,11 @@ private struct SheetButtonStyle: ButtonStyle {
 
 struct CameraView: View {
     @StateObject private var camera = CameraManager()
+
+    @AppStorage(AppStorageKey.saveAsPreviewed) private var saveAsPreviewed: Bool = true
+    @AppStorage(AppStorageKey.silentShutterPreferred) private var silentShutterPreferred: Bool = true
+    @AppStorage(AppStorageKey.theme) private var themeRaw: String = AppTheme.dark.rawValue
+    @AppStorage(AppStorageKey.language) private var languageRaw: String = AppLanguage.systemDefault().rawValue
 
     @State private var shootMode: ShootMode = .instant
     @State private var captureType: CaptureType = .photo
@@ -110,6 +91,7 @@ struct CameraView: View {
     @State private var selectedReference: ReferencePhoto?
     @State private var referenceOpacity: Double = 0.55
     @State private var showReferencePicker = false
+    @State private var showSettings = false
 
     @State private var showScenePicker = false
     @State private var pickedSceneItem: PhotosPickerItem?
@@ -126,6 +108,21 @@ struct CameraView: View {
         case failure(String)
     }
 
+    private var theme: AppTheme { AppTheme(rawValue: themeRaw) ?? .dark }
+    private var language: AppLanguage { AppLanguage(rawValue: languageRaw) ?? .en }
+    private var colors: ChromeColors { ChromeColors.resolved(for: theme) }
+
+    /// "iOS 18+ AND device support" -- CameraManager reports device/session support via
+    /// isShutterSoundSuppressionSupported, but the OS-version half of the gate belongs here.
+    private var isSilentShutterAvailable: Bool {
+        if #available(iOS 18.0, *) {
+            return camera.isShutterSoundSuppressionSupported
+        }
+        return false
+    }
+
+    private func t(_ key: String) -> String { L10n.t(key, language) }
+
     var body: some View {
         VStack(spacing: 0) {
             topBar
@@ -133,8 +130,9 @@ struct CameraView: View {
             controlChips
             bottomBar
         }
-        .background(Palette.bg.ignoresSafeArea())
+        .background(colors.bg.ignoresSafeArea())
         .statusBarHidden(true)
+        .preferredColorScheme(theme.colorScheme)
         .task {
             if await camera.requestAccess() {
                 camera.startSession()
@@ -161,6 +159,12 @@ struct CameraView: View {
                 }
             }
         }
+        // Settings is presented as a plain .sheet, which does not remove CameraView from
+        // the hierarchy, so it never triggers .onDisappear above -- the capture session
+        // (owned entirely by CameraManager) keeps running under the sheet.
+        .sheet(isPresented: $showSettings) {
+            SettingsView(isSilentShutterSupported: isSilentShutterAvailable)
+        }
         .sheet(isPresented: $showReferencePicker) {
             referencePickerSheet
         }
@@ -186,8 +190,10 @@ struct CameraView: View {
             wordmark
             Spacer(minLength: 8)
             modeSegment
-            miniButton(systemImage: "gearshape", accessibilityLabel: "Settings", isEnabled: false) {}
-            miniButton(systemImage: "arrow.triangle.2.circlepath.camera", accessibilityLabel: "Switch camera") {
+            miniButton(systemImage: "gearshape", accessibilityLabel: t("a11y.settings")) {
+                showSettings = true
+            }
+            miniButton(systemImage: "arrow.triangle.2.circlepath.camera", accessibilityLabel: t("a11y.switchCam")) {
                 camera.switchCamera()
             }
         }
@@ -206,6 +212,10 @@ struct CameraView: View {
                         Color(red: 0xf7 / 255.0, green: 0xf7 / 255.0, blue: 0xf4 / 255.0),
                         in: RoundedRectangle(cornerRadius: 6)
                     )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(theme == .light ? Color.black.opacity(0.14) : Color.clear, lineWidth: 1)
+                    )
                     .rotationEffect(.degrees(bead.tilt))
                 if index == 4 {
                     Spacer().frame(width: 5)
@@ -218,13 +228,13 @@ struct CameraView: View {
     private var modeSegment: some View {
         HStack(spacing: 2) {
             ForEach(ShootMode.allCases) { mode in
-                segButton(title: mode.label, isOn: shootMode == mode, isEnabled: mode == .instant) {
+                segButton(title: t(mode.l10nKey), isOn: shootMode == mode, isEnabled: mode == .instant) {
                     shootMode = mode
                 }
             }
         }
         .padding(2)
-        .background(Palette.seg, in: Capsule())
+        .background(colors.seg, in: Capsule())
     }
 
     private func segButton(title: String, isOn: Bool, isEnabled: Bool = true, action: @escaping () -> Void) -> some View {
@@ -233,15 +243,15 @@ struct CameraView: View {
                 .lineLimit(1)
                 .fixedSize()
                 .font(.system(size: 11, weight: isOn ? .semibold : .regular))
-                .foregroundStyle(isOn ? Palette.invFg : Palette.mut)
+                .foregroundStyle(isOn ? colors.invFg : colors.mut)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(isOn ? Palette.invBg : Color.clear, in: Capsule())
+                .background(isOn ? colors.invBg : Color.clear, in: Capsule())
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.4)
-        .accessibilityHint(isEnabled ? "" : "Not available in this version")
+        .accessibilityHint(isEnabled ? "" : t("unavailable.hint"))
     }
 
     private func miniButton(
@@ -253,19 +263,19 @@ struct CameraView: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 15))
-                .foregroundStyle(Palette.fg)
+                .foregroundStyle(colors.fg)
                 .frame(width: 20, height: 20)
         }
         .padding(9)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.line, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(colors.line, lineWidth: 1))
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.4)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint(isEnabled ? "" : "Not available in this version")
+        .accessibilityHint(isEnabled ? "" : t("unavailable.hint"))
     }
 
-    // MARK: - Stage (bounded 3:4-ish camera preview, not edge-to-edge)
+    // MARK: - Stage (bounded 3:4-ish camera preview, not edge-to-edge; always dark)
 
     private var stageArea: some View {
         ZStack {
@@ -297,7 +307,7 @@ struct CameraView: View {
             }
         }
         .aspectRatio(captureRatio.value, contentMode: .fit)
-        .background(Palette.stageBg)
+        .background(StagePalette.stageBg)
         .clipped()
         .contentShape(Rectangle())
         .onTapGesture { handleStageTap() }
@@ -321,14 +331,14 @@ struct CameraView: View {
         if simulatedScene != nil { return nil }
         switch camera.authorizationStatus {
         case .denied, .restricted:
-            return "Camera access is off. Tap to open Settings."
+            return t("cam.denied")
         case .authorized:
             if visibleErrorMessage != nil {
-                return "Couldn't open the camera. Tap the screen to simulate with a scene photo."
+                return t("cam.fail")
             }
-            return selectedReference == nil
-                ? "Silent, unretouched camera — works without a reference too"
-                : nil
+            guard selectedReference == nil else { return nil }
+            let isSilentActive = silentShutterPreferred && isSilentShutterAvailable
+            return t(isSilentActive ? "stage.hint.silent" : "stage.hint.plain")
         default:
             return nil
         }
@@ -340,11 +350,11 @@ struct CameraView: View {
             VStack {
                 Text(stageHintText)
                     .font(.system(size: 11))
-                    .foregroundStyle(Palette.chipFg)
+                    .foregroundStyle(StagePalette.chipFg)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 5)
-                    .background(Palette.hintBg, in: Capsule())
+                    .background(StagePalette.hintBg, in: Capsule())
                     .padding(.top, 12)
                     .padding(.horizontal, 20)
                 Spacer()
@@ -373,16 +383,16 @@ struct CameraView: View {
                 Button {
                     showReferencePicker = true
                 } label: {
-                    referenceThumbnailImage(reference)
+                    referenceThumbnailImage(reference, fallbackColor: StagePalette.chipFg)
                         .frame(width: 46, height: 60)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
-                                .stroke(Palette.refChipBorder, lineWidth: 1)
+                                .stroke(StagePalette.refChipBorder, lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Current reference")
+                .accessibilityLabel(t("a11y.currentRef"))
                 .padding(.leading, 12)
                 .padding(.top, 44)
 
@@ -394,19 +404,19 @@ struct CameraView: View {
 
     private var opacityCapsule: some View {
         HStack(spacing: 12) {
-            Text("Opacity")
+            Text(t("row.opacity"))
                 .font(.system(size: 12))
-                .foregroundStyle(Palette.chipFg)
+                .foregroundStyle(StagePalette.chipFg)
             Slider(value: $referenceOpacity, in: 0...1)
-                .tint(Palette.accent)
+                .tint(accentTint)
             Text("\(Int(referenceOpacity * 100))%")
                 .font(.system(size: 12).monospacedDigit())
-                .foregroundStyle(Palette.fg)
+                .foregroundStyle(StagePalette.fg)
                 .frame(width: 34, alignment: .trailing)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(Palette.capsuleBg, in: Capsule())
+        .background(StagePalette.capsuleBg, in: Capsule())
         .padding(.horizontal, 20)
     }
 
@@ -424,12 +434,12 @@ struct CameraView: View {
                 Text("\"\(reference.assetName)\" image missing")
                     .font(.caption)
             }
-            .foregroundStyle(Palette.fg.opacity(min(referenceOpacity + 0.3, 1)))
+            .foregroundStyle(StagePalette.fg.opacity(min(referenceOpacity + 0.3, 1)))
         }
     }
 
     @ViewBuilder
-    private func referenceThumbnailImage(_ reference: ReferencePhoto) -> some View {
+    private func referenceThumbnailImage(_ reference: ReferencePhoto, fallbackColor: Color) -> some View {
         if reference.isAssetAvailable {
             Image(reference.assetName)
                 .resizable()
@@ -438,7 +448,7 @@ struct CameraView: View {
             ZStack {
                 Color(red: 0x22 / 255.0, green: 0x22 / 255.0, blue: 0x22 / 255.0)
                 Image(systemName: "photo")
-                    .foregroundStyle(Palette.chipFg)
+                    .foregroundStyle(fallbackColor)
             }
         }
     }
@@ -447,23 +457,23 @@ struct CameraView: View {
 
     private var controlChips: some View {
         VStack(alignment: .leading, spacing: 4) {
-            chipRow(label: "Shoot") {
+            chipRow(label: t("row.shoot")) {
                 ForEach(CaptureType.allCases) { type in
-                    chip(type.label, isOn: captureType == type, isEnabled: type == .photo) {
+                    chip(t(type.l10nKey), isOn: captureType == type, isEnabled: type == .photo) {
                         captureType = type
                     }
                 }
             }
-            chipRow(label: "Ratio") {
+            chipRow(label: t("row.ratio")) {
                 ForEach(CaptureRatio.all) { ratio in
                     ratioChip(ratio, isOn: captureRatio == ratio) {
                         withAnimation(.easeInOut(duration: 0.2)) { captureRatio = ratio }
                     }
                 }
             }
-            chipRow(label: "Timer") {
+            chipRow(label: t("row.timer")) {
                 ForEach(TimerOption.allCases) { option in
-                    chip(option.label, isOn: timerOption == option) { timerOption = option }
+                    chip(t(option.l10nKey), isOn: timerOption == option) { timerOption = option }
                 }
             }
         }
@@ -476,7 +486,7 @@ struct CameraView: View {
             HStack(spacing: 6) {
                 Text(label)
                     .font(.system(size: 11))
-                    .foregroundStyle(Palette.mut2)
+                    .foregroundStyle(colors.mut2)
                 content()
             }
             .padding(.horizontal, 20)
@@ -487,32 +497,32 @@ struct CameraView: View {
         Button(action: action) {
             Text(label)
                 .font(.system(size: 11, weight: isOn ? .semibold : .regular))
-                .foregroundStyle(isOn ? Palette.invFg : Palette.chipFg)
+                .foregroundStyle(isOn ? colors.invFg : colors.chipFg)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(isOn ? Palette.invBg : Color.clear, in: Capsule())
-                .overlay(Capsule().stroke(isOn ? Color.clear : Palette.chipLine, lineWidth: 1))
+                .background(isOn ? colors.invBg : Color.clear, in: Capsule())
+                .overlay(Capsule().stroke(isOn ? Color.clear : colors.chipLine, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.4)
-        .accessibilityHint(isEnabled ? "" : "Not available in this version")
+        .accessibilityHint(isEnabled ? "" : t("unavailable.hint"))
     }
 
     private func ratioChip(_ ratio: CaptureRatio, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 RoundedRectangle(cornerRadius: 1)
-                    .stroke(isOn ? Palette.invFg : Palette.chipFg, lineWidth: 1.5)
+                    .stroke(isOn ? colors.invFg : colors.chipFg, lineWidth: 1.5)
                     .frame(width: ratio.iconSize.width, height: ratio.iconSize.height)
                 Text(ratio.id)
             }
             .font(.system(size: 11, weight: isOn ? .semibold : .regular))
-            .foregroundStyle(isOn ? Palette.invFg : Palette.chipFg)
+            .foregroundStyle(isOn ? colors.invFg : colors.chipFg)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(isOn ? Palette.invBg : Color.clear, in: Capsule())
-            .overlay(Capsule().stroke(isOn ? Color.clear : Palette.chipLine, lineWidth: 1))
+            .background(isOn ? colors.invBg : Color.clear, in: Capsule())
+            .overlay(Capsule().stroke(isOn ? Color.clear : colors.chipLine, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
@@ -526,13 +536,13 @@ struct CameraView: View {
             } label: {
                 Image(systemName: "photo.on.rectangle.angled")
                     .font(.system(size: 20))
-                    .foregroundStyle(Palette.fg)
+                    .foregroundStyle(colors.fg)
                     .frame(width: 52, height: 52)
-                    .background(Palette.btnBg, in: RoundedRectangle(cornerRadius: 14))
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Palette.line, lineWidth: 1))
+                    .background(colors.btnBg, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(colors.line, lineWidth: 1))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Reference")
+            .accessibilityLabel(t("a11y.ref"))
 
             Spacer()
 
@@ -553,16 +563,16 @@ struct CameraView: View {
         } label: {
             ZStack {
                 Circle()
-                    .stroke(Palette.shutterRing, lineWidth: 4)
+                    .stroke(colors.shutterRing, lineWidth: 4)
                     .frame(width: 72, height: 72)
                 Circle()
-                    .fill(Palette.invBg)
+                    .fill(colors.invBg)
                     .frame(width: 56, height: 56)
             }
         }
         .buttonStyle(.plain)
         .disabled(countdownValue != nil)
-        .accessibilityLabel("Shutter")
+        .accessibilityLabel(t("a11y.shutter"))
     }
 
     private func performCapture() {
@@ -584,13 +594,18 @@ struct CameraView: View {
 
     /// When the camera is unavailable and a simulated scene photo is standing in for the
     /// live preview, the shutter hands that photo straight to the review/save sheet instead
-    /// of calling into CameraManager, which has no real feed to capture from.
+    /// of calling into CameraManager, which has no real feed to capture from. Otherwise it
+    /// calls the real capture contract with the user's saved preferences, downgrading silent
+    /// shutter to off whenever the OS/device combination does not actually support it.
     private func finishCapture() {
         if let simulatedScene {
             saveStatus = nil
             reviewImage = simulatedScene
         } else {
-            camera.capturePhoto()
+            camera.capturePhoto(
+                saveAsPreviewed: saveAsPreviewed,
+                suppressShutterSound: silentShutterPreferred && isSilentShutterAvailable
+            )
         }
     }
 
@@ -598,14 +613,14 @@ struct CameraView: View {
 
     private var referencePickerSheet: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Reference board")
+            Text(t("board.title"))
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Palette.fg)
+                .foregroundStyle(colors.fg)
                 .padding(.bottom, 14)
 
-            Text("Preset compositions")
+            Text(t("board.presets"))
                 .font(.system(size: 12))
-                .foregroundStyle(Palette.mut2)
+                .foregroundStyle(colors.mut2)
                 .padding(.bottom, 8)
 
             LazyVGrid(
@@ -620,13 +635,13 @@ struct CameraView: View {
 
             Spacer(minLength: 20)
 
-            Button("Close") { showReferencePicker = false }
-                .buttonStyle(SheetButtonStyle(isPrimary: true))
+            Button(t("btn.close")) { showReferencePicker = false }
+                .buttonStyle(SheetButtonStyle(isPrimary: true, colors: colors))
         }
         .padding(20)
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
-        .presentationBackground(Palette.sheet)
+        .presentationBackground(colors.sheet)
     }
 
     @ViewBuilder
@@ -638,23 +653,23 @@ struct CameraView: View {
             showReferencePicker = false
         } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.06))
+                RoundedRectangle(cornerRadius: 10).fill(colors.fg.opacity(0.06))
 
                 if let reference {
-                    referenceThumbnailImage(reference)
+                    referenceThumbnailImage(reference, fallbackColor: colors.chipFg)
                 } else {
                     VStack(spacing: 4) {
                         Image(systemName: "nosign")
-                        Text("None").font(.system(size: 11))
+                        Text(t("board.none")).font(.system(size: 11))
                     }
-                    .foregroundStyle(Palette.chipFg)
+                    .foregroundStyle(colors.chipFg)
                 }
             }
             .aspectRatio(3.0 / 4.0, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(isSelected ? Palette.accent : Palette.lineSoft, lineWidth: isSelected ? 2 : 1)
+                    .stroke(isSelected ? accentTint : colors.lineSoft, lineWidth: isSelected ? 2 : 1)
             )
         }
         .buttonStyle(.plain)
@@ -664,13 +679,13 @@ struct CameraView: View {
 
     private func resultSheet(_ image: UIImage) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Photo captured")
+            Text(t("result.title"))
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Palette.fg)
+                .foregroundStyle(colors.fg)
                 .padding(.bottom, 14)
 
             ZStack {
-                RoundedRectangle(cornerRadius: 12).fill(Palette.bg)
+                RoundedRectangle(cornerRadius: 12).fill(colors.bg)
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
@@ -684,36 +699,36 @@ struct CameraView: View {
             }
 
             HStack(spacing: 10) {
-                Button("Keep shooting") {
+                Button(t("result.retake")) {
                     reviewImage = nil
                     saveStatus = nil
                 }
-                .buttonStyle(SheetButtonStyle(isPrimary: false))
+                .buttonStyle(SheetButtonStyle(isPrimary: false, colors: colors))
 
-                Button(isSaving ? "Saving…" : "Save") {
+                Button(isSaving ? t("result.saving") : t("result.save")) {
                     Task { await save(image) }
                 }
-                .buttonStyle(SheetButtonStyle(isPrimary: true))
+                .buttonStyle(SheetButtonStyle(isPrimary: true, colors: colors))
                 .disabled(isSaving)
             }
             .padding(.top, 16)
 
-            Text("If saving doesn't start automatically, press and hold the photo and choose Save to Photos.")
+            Text(t("result.hint"))
                 .font(.system(size: 12))
-                .foregroundStyle(Palette.mut2)
+                .foregroundStyle(colors.mut2)
                 .padding(.top, 12)
         }
         .padding(20)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(Palette.sheet)
+        .presentationBackground(colors.sheet)
     }
 
     private func saveStatusLabel(_ status: SaveStatus) -> some View {
         Group {
             switch status {
             case .success:
-                Label("Saved to Photos", systemImage: "checkmark.circle.fill")
+                Label(t("result.saved"), systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
             case .failure(let message):
                 Label(message, systemImage: "xmark.circle.fill")

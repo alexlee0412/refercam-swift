@@ -8,6 +8,8 @@ final class CameraManager: ObservableObject {
     @Published private(set) var authorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
     @Published private(set) var capturedImage: UIImage?
     @Published private(set) var errorMessage: String?
+    @Published private(set) var isUsingFrontCamera = false
+    @Published private(set) var isShutterSoundSuppressionSupported = false
 
     private let sessionQueue = DispatchQueue(label: "ReferCam.camera.session")
     private let photoOutput = AVCapturePhotoOutput()
@@ -42,6 +44,7 @@ final class CameraManager: ObservableObject {
             if !self.session.isRunning {
                 self.session.startRunning()
             }
+            self.publishCameraState()
         }
     }
 
@@ -52,7 +55,7 @@ final class CameraManager: ObservableObject {
         }
     }
 
-    func capturePhoto() {
+    func capturePhoto(saveAsPreviewed: Bool = false, suppressShutterSound: Bool = false) {
         sessionQueue.async { [weak self] in
             guard let self else { return }
             guard self.session.isRunning, self.isConfigured else {
@@ -62,9 +65,27 @@ final class CameraManager: ObservableObject {
             guard self.photoDelegate == nil else { return }
 
             let settings = AVCapturePhotoSettings()
-            if let connection = self.photoOutput.connection(with: .video),
-               connection.isVideoOrientationSupported {
+            if #available(iOS 18.0, *),
+               suppressShutterSound,
+               self.photoOutput.isShutterSoundSuppressionSupported {
+                settings.isShutterSoundSuppressionEnabled = true
+            }
+
+            guard let connection = self.photoOutput.connection(with: .video) else {
+                self.publishError("Camera photo connection is unavailable.")
+                return
+            }
+            if connection.isVideoOrientationSupported {
                 connection.videoOrientation = .portrait
+            }
+            let shouldMirror = self.videoInput?.device.position == .front && saveAsPreviewed
+            if shouldMirror && !connection.isVideoMirroringSupported {
+                self.publishError("Mirrored photo capture is unavailable on this device.")
+                return
+            }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = shouldMirror
             }
 
             let delegate = PhotoCaptureDelegate { [weak self] result in
@@ -111,6 +132,7 @@ final class CameraManager: ObservableObject {
                     self.publishError("Could not switch cameras.")
                 }
                 self.session.commitConfiguration()
+                self.publishCameraState()
             } catch {
                 self.publishError(error.localizedDescription)
             }
@@ -139,6 +161,7 @@ final class CameraManager: ObservableObject {
             session.commitConfiguration()
             videoInput = input
             isConfigured = true
+            publishCameraState()
             publishError(nil)
             return true
         } catch {
@@ -150,6 +173,18 @@ final class CameraManager: ObservableObject {
     private func publishError(_ message: String?) {
         DispatchQueue.main.async { [weak self] in
             self?.errorMessage = message
+        }
+    }
+
+    private func publishCameraState() {
+        let isFront = videoInput?.device.position == .front
+        var supportsSuppression = false
+        if #available(iOS 18.0, *) {
+            supportsSuppression = isConfigured && photoOutput.isShutterSoundSuppressionSupported
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.isUsingFrontCamera = isFront
+            self?.isShutterSoundSuppressionSupported = supportsSuppression
         }
     }
 }
